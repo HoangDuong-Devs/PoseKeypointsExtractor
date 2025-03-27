@@ -7,7 +7,7 @@ def normalize_keypoints(bbox, keypoints):
     """Điều chỉnh keypoints theo bbox."""
     xmin, ymin, xmax, ymax = map(int, bbox)
     keypoints_adjusted = keypoints.copy()
-
+    print("Keypoints: ", keypoints)
     # Kiểm tra và chuẩn hóa tọa độ keypoints
     for i, (kx, ky) in enumerate(keypoints):
         if xmin <= kx <= xmax and ymin <= ky <= ymax:
@@ -38,7 +38,7 @@ def convert_ratio(new_size, keypoints):
 model = YOLO("yolov8m-pose.pt")
 
 # Định nghĩa thư mục đầu vào và đường dẫn file CSV đầu ra
-input_dir = "images"
+input_dir = "F:/PyCharmProjects/DataManipulation/doze_dataset.v7i.yolov8/train/images"
 
 output_csv_path = "dataset/labels.csv"
 
@@ -75,11 +75,9 @@ for file_name in os.listdir(input_dir):
             for i in range(len(boxes)):  # Duyệt từng người phát hiện
                 temp_image = image.copy()
                 x1, y1, x2, y2 = map(int, boxes[i])  # Lấy tọa độ bbox
-
-                # Thực hiện xoay keypoints
-                image_size, keypoints = normalize_keypoints(boxes[i], keypoints[i])
+                image_size, person_keypoints = normalize_keypoints(boxes[i], keypoints[i])
                 # Chuyển đổi keypoints sang tỷ lệ sau khi xoay ảnh
-                keypoints_ratio = convert_ratio(image_size, keypoints)
+                keypoints_ratio = convert_ratio(image_size, person_keypoints)
                 print(keypoints_ratio)
 
                 # Vẽ bounding box
