@@ -7,29 +7,28 @@ def normalize_keypoints(bbox, keypoints):
     """Điều chỉnh keypoints theo bbox."""
     xmin, ymin, xmax, ymax = map(int, bbox)
     keypoints_adjusted = keypoints.copy()
-    print("Keypoints: ", keypoints)
-    # Kiểm tra và chuẩn hóa tọa độ keypoints
+    image_size = (xmax - xmin, ymax - ymin)
+
     for i, (kx, ky) in enumerate(keypoints):
+        # Kiểm tra keypoint nằm trong bbox
         if xmin <= kx <= xmax and ymin <= ky <= ymax:
             keypoints_adjusted[i] = [kx - xmin, ky - ymin]
         else:
-            # Nếu keypoint nằm ngoài bbox, đặt về (0, 0)
-            keypoints_adjusted[i] = [0, 0]
+            keypoints_adjusted[i] = [0, 0]  # Nếu ngoài bbox, gán (0, 0)
 
-    image_size = (xmax - xmin, ymax - ymin)
     return image_size, keypoints_adjusted
 
 def convert_ratio(new_size, keypoints):
-    """Chuyển đổi keypoints thành tỷ lệ."""
+    """Chuyển đổi keypoints thành tỷ lệ (0-1)."""
     w, h = new_size
-    keypoints_ratio = keypoints.copy()
+    keypoints_ratio = []
 
-    for i, (x, y) in enumerate(keypoints):
-        # Đảm bảo tọa độ không âm và kích thước hợp lệ
-        if x >= 0 and y >= 0 and w > 0 and h > 0:
-            keypoints_ratio[i] = [x / w, y / h]
+    for x, y in keypoints:
+        # Kiểm tra kích thước hợp lệ và tọa độ dương
+        if w > 0 and h > 0 and x >= 0 and y >= 0:
+            keypoints_ratio.append([x / w, y / h])
         else:
-            keypoints_ratio[i] = [0, 0]
+            keypoints_ratio.append([0, 0])
 
     return keypoints_ratio
 
@@ -37,74 +36,78 @@ def convert_ratio(new_size, keypoints):
 # Load model YOLOv8 Pose
 model = YOLO("yolov8m-pose.pt")
 
-# Định nghĩa thư mục đầu vào và đường dẫn file CSV đầu ra
+# Định nghĩa đường dẫn
 input_dir = "F:/PyCharmProjects/DataManipulation/doze_dataset.v7i.yolov8/train/images"
-
 output_csv_path = "dataset/labels.csv"
 
 # Số lượng keypoints (YOLOv8 Pose mặc định là 17 keypoints)
 num_keypoints = 17
 
-# Xác định header file CSV
+# Tạo file CSV nếu chưa tồn tại
 header = ["class"] + [f"x{i},y{i}" for i in range(num_keypoints)]
-
-# Kiểm tra nếu file chưa tồn tại thì tạo mới với header
 if not os.path.exists(output_csv_path):
     with open(output_csv_path, "w") as f:
         f.write(",".join(header) + "\n")
 
-# Bắt đầu xử lý ảnh
+# Xử lý từng ảnh trong thư mục
 for file_name in os.listdir(input_dir):
-    if file_name.lower().endswith((".jpg", ".jpeg", ".png")):
-        image_path = os.path.join(input_dir, file_name)
-        results = model(image_path, conf=0.3, iou=0.5)  # Chạy mô hình
+    if not file_name.lower().endswith((".jpg", ".jpeg", ".png")):
+        continue
 
-        if results[0].keypoints is None:
-            print(f"Không có người trong ảnh {file_name}, bỏ qua.")
-            continue
+    image_path = os.path.join(input_dir, file_name)
+    results = model(image_path, conf=0.3, iou=0.5)  # Dự đoán với YOLOv8 Pose
 
-        # Trích xuất keypoints và bounding boxes
-        keypoints = results[0].keypoints.xy.cpu().numpy()  # Lấy keypoints (x, y)
+    # Bỏ qua ảnh không phát hiện được người
+    if not results[0].keypoints:
+        print(f"Không có người trong ảnh {file_name}, bỏ qua.")
+        continue
 
-        boxes = results[0].boxes.xyxy.cpu().numpy()  # Lấy tọa độ bounding box
-        # Đọc ảnh để lấy kích thước
-        image = cv2.imread(image_path)
-        height, width, _ = image.shape
+    keypoints = results[0].keypoints.xy.cpu().numpy()
+    boxes = results[0].boxes.xyxy.cpu().numpy()
 
-        with open(output_csv_path, "a") as f:  # Mở file CSV ở chế độ append
-            for i in range(len(boxes)):  # Duyệt từng người phát hiện
-                temp_image = image.copy()
-                x1, y1, x2, y2 = map(int, boxes[i])  # Lấy tọa độ bbox
-                image_size, person_keypoints = normalize_keypoints(boxes[i], keypoints[i])
-                # Chuyển đổi keypoints sang tỷ lệ sau khi xoay ảnh
-                keypoints_ratio = convert_ratio(image_size, person_keypoints)
-                print(keypoints_ratio)
+    # Đọc ảnh gốc
+    image = cv2.imread(image_path)
 
-                # Vẽ bounding box
-                cv2.rectangle(temp_image, (x1, y1), (x2, y2), (0, 255, 0), 1)
+    with open(output_csv_path, "a") as f:
+        for i in range(len(boxes)):
+            x1, y1, x2, y2 = map(int, boxes[i])
 
-                # Hiển thị từng đối tượng để nhập class
-                cv2.imshow("Object", temp_image)
-                key = cv2.waitKey(0)  # Chờ nhập phím
-                cv2.destroyAllWindows()
+            # Điều chỉnh keypoints theo bbox
+            image_size, person_keypoints = normalize_keypoints(boxes[i], keypoints[i])
 
-                if key == 27:  # Nhấn ESC để bỏ qua đối tượng này
-                    continue
-                class_id = chr(key)  # Chuyển phím nhập thành class
+            # Chuyển đổi keypoints sang tỷ lệ
+            keypoints_ratio = convert_ratio(image_size, person_keypoints)
+            print(np.array(keypoints_ratio))
+            # Hiển thị ảnh và bounding box
+            temp_image = image.copy()
+            cv2.rectangle(temp_image, (x1, y1), (x2, y2), (0, 255, 0), 1)
+            cv2.imshow("Object", temp_image)
+            key = cv2.waitKey(0)  # Nhấn phím nhập class
+            cv2.destroyAllWindows()
 
-                # Chuẩn bị dữ liệu cho CSV
-                row = [class_id]
-                for j in range(num_keypoints):
-                    if j < len(keypoints):
-                        x_norm, y_norm = keypoints_ratio[j]
-                        row.extend([f"{x_norm:.6f}", f"{y_norm:.6f}"])
-                    else:
-                        row.extend(["0", "0"])
+            if key == 27:  # ESC để bỏ qua đối tượng
+                continue
 
-                # Ghi trực tiếp vào CSV
-                f.write(",".join(row) + "\n")
+            # Xác định class: Giới hạn phím chữ và số (48-57: 0-9, 97-122: a-z)
+            if (48 <= key <= 57) or (97 <= key <= 122):
+                class_id = chr(key)
+            else:
+                print("Phím không hợp lệ, bỏ qua đối tượng.")
+                continue
 
-        print(f"Đã xử lý {file_name}.")
+            # Chuẩn bị dữ liệu cho CSV
+            row = [class_id]
+            for j in range(num_keypoints):
+                if j < len(keypoints_ratio):
+                    x_norm, y_norm = keypoints_ratio[j]
+                    row.extend([f"{x_norm:.6f}", f"{y_norm:.6f}"])
+                else:
+                    row.extend(["0", "0"])
+
+            # Ghi vào CSV
+            f.write(",".join(row) + "\n")
+
+    print(f"Đã xử lý {file_name}.")
 
 print(f"Lưu annotations vào {output_csv_path}")
 print("Hoàn thành!")
